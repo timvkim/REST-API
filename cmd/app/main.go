@@ -2,14 +2,15 @@ package main
 
 import (
 	"context"
-	"github.com/learningPlatform/internal/repository"
-	"github.com/learningPlatform/internal/service"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/jackc/pgx"
+	"github.com/learningPlatform/internal/repository"
+	"github.com/learningPlatform/internal/service"
+
 	"github.com/learningPlatform/internal/transport/rest"
 	"github.com/learningPlatform/internal/transport/rest/handlers"
 )
@@ -22,7 +23,7 @@ func main() {
 
 	conn, err := pgx.Connect(pgx.ConnConfig{
 		Host:     "localhost",
-		Port:     5432,
+		Port:     5431,
 		Database: "course_db",
 		User:     "admin",
 		Password: "admin123",
@@ -49,7 +50,7 @@ func main() {
 		}
 	}()
 
-	ch := make(chan os.Signal)
+	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT)
 
 	<-ch

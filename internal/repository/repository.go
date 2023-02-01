@@ -44,6 +44,29 @@ func (r Repo) GetCourses() ([]models.Course, error) {
 	return rowSlice, nil
 }
 
+func (r Repo) UpdateCourse(update models.UpdateCourse) (models.Course, error) {
+	query := `
+		UPDATE courses
+		SET title = $1, description = $2, price = $3
+		WHERE id = $4
+		RETURNING id, title, description, price, author_id`
+
+	args := []interface{}{
+		update.Title,
+		update.Description,
+		update.Price,
+		update.ID,
+	}
+
+	course := models.Course{}
+
+	err := r.conn.QueryRow(query, args...).Scan(&course.ID, &course.Title, &course.Description, &course.Price, &course.AuthorID)
+	if err != nil {
+		return models.Course{}, err
+	}
+	return course, nil
+}
+
 func (r Repo) CreateUser(user models.User) (int, error) {
 	row := r.conn.QueryRow("INSERT INTO users (name, login, password) VALUES ($1, $2, $3) RETURNING id",
 		user.Name, user.Login, user.Password)

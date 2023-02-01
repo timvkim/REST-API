@@ -32,6 +32,16 @@ func (s Service) CreateCourse(course models.Course) (int, error) {
 	return id, nil
 }
 
+func (s Service) UpdateCourse(update models.UpdateCourse) (models.Course, error) {
+	course, err := s.repo.UpdateCourse(update)
+	if err != nil {
+		return models.Course{}, err
+	}
+
+	return course, nil
+
+}
+
 func (s *Service) CreateUser(user models.User) (int, error) {
 	id, err := s.repo.CreateUser(user)
 	if err != nil {
