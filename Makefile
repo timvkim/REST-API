@@ -12,4 +12,4 @@ migrate:
 	migrate -database postgres://admin:admin123@localhost:5431/course_db?sslmode=disable -path migrations up
 
 drop-tables:
-	migrate -database postgres://admin:admin123@localhost:5432/course_db?sslmode=disable -path migrations down
+	migrate -database postgres://admin:admin123@localhost:5431/course_db?sslmode=disable -path migrations down

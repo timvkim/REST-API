@@ -7,7 +7,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/jackc/pgx"
+	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/learningPlatform/internal/configs"
 	"github.com/learningPlatform/internal/repository"
 	"github.com/learningPlatform/internal/service"
 
@@ -18,32 +19,25 @@ import (
 func main() {
 	ctx := context.Background()
 
-	// TODO use configuration struct with env
-	port := 9000
+	cfg, err := configs.New()
+	if err != nil {
+		log.Fatal("error when initializing the config", err)
+	}
 
-	conn, err := pgx.Connect(pgx.ConnConfig{
-		Host:     "localhost",
-		Port:     5431,
-		Database: "course_db",
-		User:     "admin",
-		Password: "admin123",
-	})
+	conn, err := pgxpool.Connect(ctx, cfg.DB_URL)
 	if err != nil {
 		log.Printf("Unable to connect to database: %v\n", err)
 		return
 	}
 
 	repository := repository.NewRepo(conn)
-	service := service.NewService(repository)
+	services := service.NewService(repository.Course, repository.User)
+	restHandler := handlers.NewHandler(services.CourseStorage, services.UserStorage)
 
-	restHandler := handlers.NewHandler(service)
-	restSrv := rest.NewServer(port, restHandler.InitRouters())
-
-	//grpcHandler := j
-	//grpcSrv :=
+	restSrv := rest.NewServer(restHandler.InitRouters(), cfg)
 
 	go func() {
-		log.Printf("[INFO] run http server port %d", port)
+		log.Printf("[INFO] run http server on port: %d\n", cfg.Port)
 		if err := restSrv.ListenAndServe(); err != nil {
 			log.Printf("[ERROR] listen and serve error: %s", err)
 			return
@@ -60,8 +54,5 @@ func main() {
 		log.Printf("[ERROR] stop server error: %s", err)
 	}
 
-	err = conn.Close()
-	if err != nil {
-		log.Printf("[ERROR] stop database error: %s", err)
-	}
+	conn.Close()
 }

@@ -4,20 +4,28 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
+
+	"github.com/learningPlatform/internal/configs"
 )
 
 type Server struct {
-	srv *http.Server
+	srv    *http.Server
+	config *configs.Config
 }
 
-func NewServer(port int, handler http.Handler) *Server {
+func NewServer(handler http.Handler, config *configs.Config) *Server {
 	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: handler,
+		Addr:         fmt.Sprintf(":%d", config.Port),
+		Handler:      handler,
+		IdleTimeout:  time.Minute,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
 	}
 
 	return &Server{
-		srv: srv,
+		srv:    srv,
+		config: config,
 	}
 }
 

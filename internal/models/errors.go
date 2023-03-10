@@ -1,6 +1,11 @@
 package models
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+var ErrDoesNotExist = errors.New("does not exist")
 
 type ErrorFields struct {
 	Fields map[string]string `json:"fields"`
@@ -9,3 +14,4 @@ type ErrorFields struct {
 func (e ErrorFields) Error() string {
 	return fmt.Sprintf("%v", e.Fields)
 }
+

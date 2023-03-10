@@ -1,84 +1,118 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
-	"io"
+	"errors"
+	"log"
 	"net/http"
 	"strconv"
 
 	"github.com/gorilla/mux"
 	"github.com/learningPlatform/internal/models"
-	"github.com/learningPlatform/internal/service"
 )
 
-type Handler struct {
-	service *service.Service
+type CourseService interface {
+	GetCourses(ctx context.Context) ([]models.Course, error)
+	GetCourseById(ctx context.Context, id int) (models.Course, error)
+	CreateCourse(ctx context.Context, course models.Course) (int, error)
+	UpdateCourse(ctx context.Context, update models.UpdateCourse) (models.Course, error)
+	DeleteCourse(ctx context.Context, id int) error
 }
 
-func NewHandler(service *service.Service) *Handler {
+type UserService interface {
+	CreateUser(ctx context.Context, user models.User) (int, error)
+}
+
+type Handler struct {
+	courseService CourseService
+	userService   UserService
+}
+
+func NewHandler(crs CourseService, usr UserService) *Handler {
 	return &Handler{
-		service: service,
+		courseService: crs,
+		userService:   usr,
 	}
 }
 
 func (h Handler) InitRouters() *mux.Router {
 	r := mux.NewRouter()
 
-	r.HandleFunc("/courses", h.getCourses())
-	r.HandleFunc("/courses/create", h.createCourse())
-	r.HandleFunc("/course/{id}", h.updateCourse())
-	r.HandleFunc("/users/create", h.createUser())
+	r.HandleFunc("/courses", h.getCourses()).Methods(http.MethodGet)
+	r.HandleFunc("/course/{id}", h.getCourseById()).Methods(http.MethodGet)
+	r.HandleFunc("/course/create", h.createCourse()).Methods(http.MethodPost)
+	r.HandleFunc("/course/{id}", h.updateCourse()).Methods(http.MethodPut)
+	r.HandleFunc("/course/delete/{id}", h.deleteCourse()).Methods(http.MethodDelete)
+	r.HandleFunc("/users/create", h.createUser()).Methods(http.MethodPost)
 
 	return r
 }
 
 func (h Handler) getCourses() func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		result, err := h.service.GetCourses()
+
+		ctx := r.Context()
+		result, err := h.courseService.GetCourses(ctx)
 		if err != nil {
-			w.Write([]byte(err.Error()))
-			w.WriteHeader(500)
+			writeJSON(w, http.StatusInternalServerError, response{err.Error()})
 			return
 		}
 
-		bytes, err := json.Marshal(result)
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func (h Handler) getCourseById() func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+
+		ctx := r.Context()
+		id, err := strconv.Atoi(mux.Vars(r)["id"])
 		if err != nil {
-			w.Write([]byte(err.Error()))
-			w.WriteHeader(http.StatusInternalServerError)
+			writeJSON(w, http.StatusBadRequest, response{err.Error()})
 			return
 		}
-		w.Write(bytes)
-		w.WriteHeader(http.StatusOK)
+
+		result, err := h.courseService.GetCourseById(ctx, id)
+		if err != nil {
+			if errors.Is(err, models.ErrDoesNotExist) {
+				writeJSON(w, http.StatusNotFound, response{err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, response{err.Error()})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, result)
 	}
 }
 
 func (h Handler) createCourse() func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 
-		bytes, err := io.ReadAll(r.Body)
-		if err != nil {
-			w.Write([]byte(err.Error()))
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
+		ctx := r.Context()
+
+		w.Header().Set("Content-Type", "application/json")
+		log.Print("trying to create a new course...")
 
 		var course models.Course
-		err = json.Unmarshal(bytes, &course)
+
+		err := json.NewDecoder(r.Body).Decode(&course)
 		if err != nil {
-			w.Write([]byte(err.Error()))
-			w.WriteHeader(http.StatusInternalServerError)
+			log.Println("provided json is invalid")
+			writeJSON(w, http.StatusBadRequest, response{err.Error()})
 			return
 		}
 
-		id, err := h.service.CreateCourse(course)
+		id, err := h.courseService.CreateCourse(ctx, course)
 		if err != nil {
-			w.Write([]byte(err.Error()))
-			w.WriteHeader(http.StatusInternalServerError)
+			log.Println("error while creating a new course")
+			writeJSON(w, http.StatusInternalServerError, response{err.Error()})
 			return
 		}
 
-		w.Write([]byte(strconv.Itoa(id)))
-		w.WriteHeader(http.StatusOK)
+		log.Println("new course succesfully created")
+		writeJSON(w, http.StatusCreated, response{strconv.Itoa(id)})
 
 	}
 }
@@ -86,12 +120,14 @@ func (h Handler) createCourse() func(w http.ResponseWriter, r *http.Request) {
 func (h Handler) updateCourse() func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 
+		ctx := r.Context()
+
 		var crs models.UpdateCourse
 
 		err := json.NewDecoder(r.Body).Decode(&crs)
 		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(err.Error()))
+			writeJSON(w, http.StatusInternalServerError, response{err.Error()})
+			return
 		}
 
 		err = crs.Validate()
@@ -99,64 +135,82 @@ func (h Handler) updateCourse() func(w http.ResponseWriter, r *http.Request) {
 			value, ok := err.(models.ErrorFields)
 
 			if !ok {
-				w.Write([]byte(err.Error()))
+				writeJSON(w, http.StatusInternalServerError, response{err.Error()})
 				return
 			}
 
-			w.Header().Add("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(value)
+			writeJSON(w, http.StatusBadRequest, value)
 			return
 		}
 
 		id, err := strconv.Atoi(mux.Vars(r)["id"])
 		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(err.Error()))
+			writeJSON(w, http.StatusInternalServerError, response{err.Error()})
 			return
 		}
 
 		crs.ID = id
 
-		course, err := h.service.UpdateCourse(crs)
+		course, err := h.courseService.UpdateCourse(ctx, crs)
 		if err != nil {
-			w.Write([]byte(err.Error()))
-			w.WriteHeader(http.StatusInternalServerError)
+			writeJSON(w, http.StatusInternalServerError, response{err.Error()})
 			return
 		}
 
-		w.Header().Add("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(course)
+		writeJSON(w, http.StatusOK, course)
 
 	}
+}
+
+func (h Handler) deleteCourse() func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+
+		ctx := r.Context()
+
+		id, err := strconv.Atoi(mux.Vars(r)["id"])
+		if err != nil {
+			log.Println("error while getting id")
+			writeJSON(w, http.StatusBadRequest, response{err.Error()})
+			return
+		}
+
+		log.Printf("deleting course %d\n", id)
+
+		err = h.courseService.DeleteCourse(ctx, id)
+		if err != nil {
+			if errors.Is(err, models.ErrDoesNotExist) {
+				writeJSON(w, http.StatusNotFound, response{err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, response{err.Error()})
+			return
+		}
+
+		log.Printf("the course by id %d is succesfully deleted", id)
+		writeJSON(w, http.StatusNoContent, nil)
+	}
+
 }
 
 func (h Handler) createUser() func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 
-		bytes, err := io.ReadAll(r.Body)
-		if err != nil {
-			w.Write([]byte(err.Error()))
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
+		ctx := r.Context()
+
 		var user models.User
-		err = json.Unmarshal(bytes, &user)
+		err := json.NewDecoder(r.Body).Decode(&user)
 		if err != nil {
-			w.Write([]byte(err.Error()))
-			w.WriteHeader(http.StatusInternalServerError)
+			writeJSON(w, http.StatusBadRequest, response{err.Error()})
 			return
 		}
 
-		id, err := h.service.CreateUser(user)
+		id, err := h.userService.CreateUser(ctx, user)
 		if err != nil {
-			w.Write([]byte(err.Error()))
-			w.WriteHeader(http.StatusInternalServerError)
+			writeJSON(w, http.StatusInternalServerError, response{err.Error()})
 			return
 		}
 
-		w.Write([]byte(strconv.Itoa(id)))
-		w.WriteHeader(http.StatusOK)
+		writeJSON(w, http.StatusCreated, response{strconv.Itoa(id)})
 
 	}
 
